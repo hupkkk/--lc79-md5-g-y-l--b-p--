@@ -23,36 +23,55 @@ async function fetchSession() {
         const response = await axios.get(API_URL, { timeout: 10000 });
         const raw = response.data;
 
-        // Kiểm tra cấu trúc: trả về { list: [...] }
         if (!raw.list || !Array.isArray(raw.list) || raw.list.length === 0) {
             console.log('API trả về list rỗng hoặc không tồn tại');
             return;
         }
 
-        // Lấy phiên mới nhất (phần tử đầu mảng – mới nhất)
-        const newest = raw.list[0];
+        // Sắp xếp các phiên theo thứ tự tăng dần (cũ → mới)
+        const sorted = raw.list.slice().sort((a, b) => a.id - b.id);
+        const currentPhien = currentSession ? currentSession.phien : null;
 
-        const phien = newest.id;
-        const ketQua = newest.resultTruyenThong;
-        const dices = newest.dices; // mảng [a,b,c]
+        // Lọc ra các phiên mới hơn phiên hiện tại
+        const newSessions = sorted.filter(s => currentPhien === null || s.id > currentPhien);
 
-        if (!phien || !ketQua || !dices) {
-            console.log('Thiếu trường dữ liệu trong phần tử:', Object.keys(newest));
+        if (newSessions.length === 0) {
+            console.log('Không có phiên mới');
             return;
         }
 
-        const newSession = {
-            phien: parseInt(phien),
-            ket_qua: ketQua.toLowerCase(),
-            xuc_xac: dices.join(','), // "2,1,1"
-        };
+        console.log(`Phát hiện ${newSessions.length} phiên mới`);
 
-        console.log('Phiên mới:', JSON.stringify(newSession));
+        // Xử lý từng phiên mới theo thứ tự cũ → mới
+        for (const s of newSessions) {
+            const phien = parseInt(s.id);
+            const ketQua = s.resultTruyenThong ? s.resultTruyenThong.toLowerCase() : null;
+            const dices = s.dices;
 
-        if (!currentSession || currentSession.phien !== newSession.phien) {
+            if (!phien || !ketQua || !dices) {
+                console.log('Thiếu dữ liệu trong phiên:', s);
+                continue;
+            }
+
+            const newSession = {
+                phien: phien,
+                ket_qua: ketQua,
+                xuc_xac: dices.join(',')
+            };
+
+            // Kiểm tra dự đoán cho phiên này (nếu có dự đoán trước đó)
+            if (currentSession) {
+                validatePrediction(newSession);
+            }
+
+            // Cập nhật phiên hiện tại và lịch sử
             currentSession = newSession;
             sessionHistory.push(newSession);
-            if (sessionHistory.length > MAX_HISTORY) sessionHistory = sessionHistory.slice(-MAX_HISTORY);
+            if (sessionHistory.length > MAX_HISTORY) {
+                sessionHistory = sessionHistory.slice(-MAX_HISTORY);
+            }
+
+            // Tạo dự đoán cho phiên tiếp theo
             predictNext();
         }
     } catch (error) {
@@ -125,13 +144,15 @@ function validatePrediction(actual) {
     prediction.thong_ke_dung_sai = { Dung: stats.predictions.correct, Sai: stats.predictions.wrong };
 }
 
+// Tự động cập nhật theo chu kỳ
 setInterval(async () => {
     await fetchSession();
-    if (currentSession) validatePrediction(currentSession);
 }, POLL_INTERVAL);
+
+// Gọi lần đầu khi khởi động
 fetchSession();
 
-// Các API endpoints (giống phần trước, không thay đổi)
+// Các API endpoints
 app.get('/', (req, res) => {
     res.json({ message: 'Server dự đoán tài/xỉu', endpoints: { current: '/current', predict: '/predict', history: '/history', stats: '/stats' } });
 });
