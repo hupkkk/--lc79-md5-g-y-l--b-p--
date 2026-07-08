@@ -36,18 +36,47 @@ async function fetchSession() {
         const response = await axios.get(API_URL, { timeout: 10000 });
         const rawData = response.data;
 
-        console.log('Dữ liệu thô từ API:', JSON.stringify(rawData).substring(0, 500));
+        // Log dữ liệu thô để debug
+        console.log('Dữ liệu thô:', JSON.stringify(rawData).substring(0, 1000));
 
-        // Xác định cấu trúc: nếu là mảng, lấy phần tử đầu
+        // Nếu là mảng, lấy phần tử đầu
         let data = rawData;
         if (Array.isArray(rawData) && rawData.length > 0) {
             data = rawData[0];
         }
 
-        // Kiểm tra các trường cần thiết (có thể map linh hoạt hơn)
-        const phien = data.phien || data.id || data.session_id || data.round;
-        const ketQua = data.ket_qua || data.result || data.ketqua || data.tai_xiu;
-        const xucXac = data.xuc_xac || data.dice || data.xucxac || '';
+        // Thử các tên trường khả dĩ
+        const possiblePhien = ['phien', 'id', 'session_id', 'round', 'ma'];
+        const possibleKetQua = ['ket_qua', 'result', 'ketqua', 'tai_xiu', 'kq'];
+        const possibleXucXac = ['xuc_xac', 'dice', 'xucxac', 'mat'];
+
+        let phien = null;
+        let ketQua = null;
+        let xucXac = '';
+
+        // Tìm trường phiên
+        for (const key of possiblePhien) {
+            if (data[key] !== undefined) {
+                phien = data[key];
+                break;
+            }
+        }
+
+        // Tìm trường kết quả
+        for (const key of possibleKetQua) {
+            if (data[key] !== undefined) {
+                ketQua = data[key];
+                break;
+            }
+        }
+
+        // Tìm trường xúc xắc
+        for (const key of possibleXucXac) {
+            if (data[key] !== undefined) {
+                xucXac = data[key];
+                break;
+            }
+        }
 
         if (phien && ketQua) {
             const newSession = {
@@ -56,7 +85,7 @@ async function fetchSession() {
                 xuc_xac: xucXac.toString(),
             };
 
-            console.log(`Phiên mới: ${JSON.stringify(newSession)}`);
+            console.log('Phiên mới:', JSON.stringify(newSession));
 
             // Kiểm tra trùng
             if (!currentSession || currentSession.phien !== newSession.phien) {
@@ -71,15 +100,39 @@ async function fetchSession() {
                 predictNext();
             }
         } else {
-            console.log('Không tìm thấy trường phien/ket_qua trong dữ liệu. Cấu trúc:', Object.keys(data));
+            console.log('Không tìm thấy phiên/kết quả. Các key hiện có:', Object.keys(data));
+            // Nếu lần đầu và chưa có gì, tạo prediction mặc định
+            if (!currentSession && !prediction) {
+                prediction = {
+                    phien: 1,
+                    ket_qua: null,
+                    xuc_xac: null,
+                    du_doan: 'chờ dữ liệu',
+                    do_tin_cay: '0%',
+                    loai_cau: 'chưa xác định',
+                    thong_ke_dung_sai: { Dung: 0, Sai: 0 }
+                };
+            }
         }
     } catch (error) {
         console.error('Lỗi khi gọi API:', error.message);
+        // Nếu lỗi mạng, tạo prediction mặc định để tránh null
+        if (!prediction) {
+            prediction = {
+                phien: 1,
+                ket_qua: null,
+                xuc_xac: null,
+                du_doan: 'lỗi kết nối',
+                do_tin_cay: '0%',
+                loai_cau: 'lỗi',
+                thong_ke_dung_sai: { Dung: 0, Sai: 0 }
+            };
+        }
     }
 }
 
 // ============================================
-// Thuật toán dự đoán (giữ nguyên)
+// Thuật toán dự đoán (cải tiến)
 // ============================================
 function predictNext() {
     if (sessionHistory.length < 2) {
@@ -95,7 +148,7 @@ function predictNext() {
         return;
     }
 
-    // Markov + phân tích cầu (code cũ giữ nguyên)
+    // Markov chain bậc 1
     const transitions = { 'tài': { 'tài': 0, 'xỉu': 0 }, 'xỉu': { 'tài': 0, 'xỉu': 0 } };
     for (let i = 0; i < sessionHistory.length - 1; i++) {
         const from = sessionHistory[i].ket_qua;
@@ -208,7 +261,7 @@ app.get('/current', (req, res) => {
 
 app.get('/predict', (req, res) => {
     if (!prediction) {
-        return res.json({ success: true, data: { message: 'Chưa đủ dữ liệu để dự đoán. Vui lòng đợi thêm phiên.' } });
+        return res.json({ success: true, data: { message: 'Chưa đủ dữ liệu để dự đoán' } });
     }
     res.json({
         success: true,
