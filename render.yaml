@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: taixiu-predictor
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: SOURCE_API_URL
+        value: https://wtxmd52.tele68.com/v1/txmd5/lite-sessions?cp=R&cl=R&pf=web&at=15766f58a95cb4f95975ffcf643f524c
+      - key: POLL_INTERVAL_MS
+        value: 5000
+      - key: BOT_ID
+        value: S2KING

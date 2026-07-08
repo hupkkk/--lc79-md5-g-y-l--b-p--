@@ -1,13 +1,24 @@
 {
-  "name": "tai-xiu-predictor",
+  "name": "taixiu-predictor",
   "version": "1.0.0",
+  "description": "Server du doan Tai Xiu tu dong, cap nhat phien that lien tuc tu API goc, dung nhieu thuat toan thong ke de du doan (streak, dao 1-1, Markov bac 1-2-3, tan suat, trung binh dong).",
   "main": "server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
   "dependencies": {
-    "axios": "^1.7.2",
-    "cors": "^2.8.5",
     "express": "^4.19.2"
-  }
+  },
+  "keywords": [
+    "taixiu",
+    "predictor",
+    "vietnam",
+    "algorithm"
+  ],
+  "author": "",
+  "license": "ISC"
 }
