@@ -17,6 +17,18 @@ let currentSession = null;
 let stats = { predictions: { total: 0, correct: 0, wrong: 0 } };
 let prediction = null;
 
+/**
+ * Chuẩn hóa chuỗi kết quả từ API về 'tài' hoặc 'xỉu'
+ * Hỗ trợ cả có dấu và không dấu, viết hoa/thường
+ */
+function normalizeResult(raw) {
+    if (!raw) return null;
+    const lower = raw.toLowerCase().trim();
+    if (lower.includes('tài') || lower.includes('tai')) return 'tài';
+    if (lower.includes('xỉu') || lower.includes('xiu')) return 'xỉu';
+    return null;
+}
+
 async function fetchSession() {
     try {
         console.log(`[${new Date().toISOString()}] Đang gọi API...`);
@@ -28,11 +40,11 @@ async function fetchSession() {
             return;
         }
 
-        // Sắp xếp các phiên theo thứ tự tăng dần (cũ → mới)
+        // Sắp xếp phiên theo thứ tự tăng dần (cũ → mới)
         const sorted = raw.list.slice().sort((a, b) => a.id - b.id);
         const currentPhien = currentSession ? currentSession.phien : null;
 
-        // Lọc ra các phiên mới hơn phiên hiện tại
+        // Lọc các phiên mới hơn phiên hiện tại
         const newSessions = sorted.filter(s => currentPhien === null || s.id > currentPhien);
 
         if (newSessions.length === 0) {
@@ -42,14 +54,22 @@ async function fetchSession() {
 
         console.log(`Phát hiện ${newSessions.length} phiên mới`);
 
-        // Xử lý từng phiên mới theo thứ tự cũ → mới
+        // Xử lý từng phiên theo thứ tự cũ → mới
         for (const s of newSessions) {
             const phien = parseInt(s.id);
-            const ketQua = s.resultTruyenThong ? s.resultTruyenThong.toLowerCase() : null;
+            const rawResult = s.resultTruyenThong;
             const dices = s.dices;
 
-            if (!phien || !ketQua || !dices) {
-                console.log('Thiếu dữ liệu trong phiên:', s);
+            // Kiểm tra dữ liệu cơ bản
+            if (!phien || !rawResult || !dices) {
+                console.log('Bỏ qua phiên do thiếu dữ liệu:', s);
+                continue;
+            }
+
+            // Chuẩn hóa kết quả
+            const ketQua = normalizeResult(rawResult);
+            if (!ketQua) {
+                console.log(`Bỏ qua phiên ${phien} do kết quả không hợp lệ: "${rawResult}"`);
                 continue;
             }
 
@@ -80,6 +100,7 @@ async function fetchSession() {
 }
 
 function predictNext() {
+    // Nếu chưa đủ dữ liệu → dự đoán ngẫu nhiên
     if (sessionHistory.length < 2) {
         prediction = {
             phien: currentSession ? currentSession.phien + 1 : 1,
@@ -93,20 +114,45 @@ function predictNext() {
         return;
     }
 
-    // Markov chain
-    const transitions = { 'tài': { 'tài': 0, 'xỉu': 0 }, 'xỉu': { 'tài': 0, 'xỉu': 0 } };
-    for (let i = 0; i < sessionHistory.length - 1; i++) {
-        const from = sessionHistory[i].ket_qua;
-        const to = sessionHistory[i+1].ket_qua;
-        if (transitions[from]) transitions[from][to]++;
+    // Lấy kết quả phiên gần nhất
+    const lastResult = sessionHistory[sessionHistory.length - 1].ket_qua;
+
+    // Kiểm tra an toàn: nếu lastResult không phải 'tài' hoặc 'xỉu' → dự đoán ngẫu nhiên
+    if (!lastResult || (lastResult !== 'tài' && lastResult !== 'xỉu')) {
+        console.warn('Kết quả phiên cuối không hợp lệ, dự đoán ngẫu nhiên');
+        prediction = {
+            phien: currentSession.phien + 1,
+            ket_qua: null,
+            xuc_xac: null,
+            du_doan: Math.random() < 0.5 ? 'tài' : 'xỉu',
+            do_tin_cay: '50%',
+            loai_cau: 'không xác định',
+            thong_ke_dung_sai: { Dung: stats.predictions.correct, Sai: stats.predictions.wrong }
+        };
+        return;
     }
 
-    const lastResult = sessionHistory[sessionHistory.length - 1].ket_qua;
+    // ---- Thuật toán Markov chain (giữ nguyên) ----
+    const transitions = {
+        'tài': { 'tài': 0, 'xỉu': 0 },
+        'xỉu': { 'tài': 0, 'xỉu': 0 }
+    };
+    for (let i = 0; i < sessionHistory.length - 1; i++) {
+        const from = sessionHistory[i].ket_qua;
+        const to = sessionHistory[i + 1].ket_qua;
+        // Chỉ tính nếu cả hai đều hợp lệ
+        if (from && to && transitions[from]) {
+            transitions[from][to] = (transitions[from][to] || 0) + 1;
+        }
+    }
+
     const total = transitions[lastResult]['tài'] + transitions[lastResult]['xỉu'];
     let probTai = 0.5;
-    if (total > 0) probTai = transitions[lastResult]['tài'] / total;
+    if (total > 0) {
+        probTai = transitions[lastResult]['tài'] / total;
+    }
 
-    // Loại cầu
+    // Xác định loại cầu
     const recent = sessionHistory.slice(-5).map(s => s.ket_qua);
     let loaiCau = 'bệt';
     if (recent.length >= 3) {
@@ -152,7 +198,7 @@ setInterval(async () => {
 // Gọi lần đầu khi khởi động
 fetchSession();
 
-// Các API endpoints
+// ---------- Các API endpoints (giữ nguyên) ----------
 app.get('/', (req, res) => {
     res.json({ message: 'Server dự đoán tài/xỉu', endpoints: { current: '/current', predict: '/predict', history: '/history', stats: '/stats' } });
 });
